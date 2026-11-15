@@ -23,6 +23,14 @@ class InputError(TieoutError):
     """Records handed to the engine are inconsistent (duplicate ids, unknown sources...)."""
 
 
+class InvariantError(TieoutError):
+    """The engine produced a result that breaks an accounting invariant.
+
+    This is a bug in tieout, never a property of the input. The run is aborted
+    rather than reporting numbers that cannot be right.
+    """
+
+
 class ConnectorError(TieoutError):
     """A source file could not be parsed. Carries the location of the problem."""
 

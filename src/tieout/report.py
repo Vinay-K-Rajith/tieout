@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,20 @@ __all__ = [
 
 _SUMMARY_BREAK_LIMIT = 20
 
+# Cells starting with these are run as formulas by spreadsheet apps (OWASP "CSV
+# injection"). Bank descriptions and references are untrusted, so text cells that
+# start with one are prefixed with a single quote. Amount columns are written by
+# tieout itself and are never touched.
+_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r", "\n", "\uff1d", "\uff0b", "\uff0d", "\uff20")
+
+
+def _safe(text: str) -> str:
+    return "'" + text if text.startswith(_FORMULA_TRIGGERS) else text
+
+
+def _date(value: date | None) -> str:
+    return value.isoformat() if value is not None else ""
+
 
 def to_dict(result: Result) -> dict[str, Any]:
     """Convert a `Result` into a plain JSON-serializable dictionary."""
@@ -30,6 +45,7 @@ def to_dict(result: Result) -> dict[str, Any]:
             "engine_version": result.run.engine_version,
             "spec_digest": result.run.spec_digest,
             "input_digests": dict(result.run.input_digests),
+            "content_digests": dict(result.run.content_digests),
         },
         "summary": {
             "records": summary.records,
@@ -37,12 +53,17 @@ def to_dict(result: Result) -> dict[str, Any]:
             "matched_records": summary.matched_records,
             "breaks": summary.breaks,
             "match_rate": round(summary.match_rate, 6),
+            "excluded_rows": summary.excluded,
             "breaks_by_reason": {
                 reason.value: count for reason, count in summary.breaks_by_reason.items()
             },
         },
         "matches": [_match_dict(result, match) for match in result.matches],
         "breaks": [_break_dict(result, item) for item in result.breaks],
+        "excluded": {
+            source: [{"location": row.location, "reason": row.reason} for row in rows]
+            for source, rows in sorted(result.excluded.items())
+        },
     }
 
 
@@ -75,14 +96,14 @@ def write_matches_csv(result: Result, path: str | Path) -> None:
             writer.writerow(
                 [
                     match.id,
-                    match.rule_id,
-                    ";".join(match.left_ids),
-                    ";".join(match.right_ids),
+                    _safe(match.rule_id),
+                    _safe(";".join(match.left_ids)),
+                    _safe(";".join(match.right_ids)),
                     match.currency,
                     format_amount(left_total, match.currency),
                     format_amount(right_total, match.currency),
                     format_amount(match.difference, match.currency),
-                    " | ".join(match.explanation),
+                    _safe(" | ".join(match.explanation)),
                 ]
             )
 
@@ -102,7 +123,9 @@ def write_breaks_csv(result: Result, path: str | Path) -> None:
                 "currency",
                 "amount",
                 "value_date",
+                "booking_date",
                 "external_id",
+                "location",
                 "candidate_ids",
                 "detail",
             ]
@@ -111,16 +134,18 @@ def write_breaks_csv(result: Result, path: str | Path) -> None:
             record = result.records[item.record_id]
             writer.writerow(
                 [
-                    item.record_id,
-                    record.source,
+                    _safe(item.record_id),
+                    _safe(record.source),
                     item.reason.value,
-                    item.rule_id or "",
+                    _safe(item.rule_id or ""),
                     record.currency,
                     format_amount(record.amount, record.currency),
-                    record.value_date.isoformat(),
-                    record.external_id or "",
-                    ";".join(item.candidate_ids),
-                    item.detail,
+                    _date(record.value_date),
+                    _date(record.booking_date),
+                    _safe(record.external_id or ""),
+                    _safe(record.location or ""),
+                    _safe(";".join(item.candidate_ids)),
+                    _safe(item.detail),
                 ]
             )
 
@@ -136,6 +161,14 @@ def format_summary(result: Result) -> str:
             f"{summary.breaks} break(s)"
         ),
     ]
+    if summary.excluded:
+        per_reason: dict[str, int] = {}
+        for source, rows in sorted(result.excluded.items()):
+            for row in rows:
+                key = f"{source}: {row.reason}"
+                per_reason[key] = per_reason.get(key, 0) + 1
+        details = "; ".join(f"{key} x{count}" for key, count in per_reason.items())
+        lines.append(f"{summary.excluded} input row(s) excluded by source filters ({details})")
     if result.matches:
         lines.append("")
         lines.append("Matches:")
@@ -163,9 +196,11 @@ def format_summary(result: Result) -> str:
         for item in result.breaks[:_SUMMARY_BREAK_LIMIT]:
             rec = result.records[item.record_id]
             amt = format_amount(rec.amount, rec.currency)
+            where = f", {rec.location}" if rec.location else ""
             lines.append(
-                f"  [{item.reason.value}] {item.record_id} ({rec.value_date.isoformat()} "
-                f"{amt} {rec.currency}): {item.detail}"
+                f"  [{item.reason.value}] {item.record_id} "
+                f"({_date(rec.value_date or rec.booking_date)} {amt} {rec.currency}{where}): "
+                f"{item.detail}"
             )
         if len(result.breaks) > _SUMMARY_BREAK_LIMIT:
             lines.append(f"  ... and {len(result.breaks) - _SUMMARY_BREAK_LIMIT} more break(s)")
@@ -205,8 +240,10 @@ def _break_dict(result: Result, item: Break) -> dict[str, Any]:
         "currency": rec.currency,
         "amount": format_amount(rec.amount, rec.currency),
         "amount_minor": rec.amount,
-        "value_date": rec.value_date.isoformat(),
+        "value_date": _date(rec.value_date) or None,
+        "booking_date": _date(rec.booking_date) or None,
         "external_id": rec.external_id,
+        "location": rec.location,
         "candidate_ids": list(item.candidate_ids),
         "detail": item.detail,
     }

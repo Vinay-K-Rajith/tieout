@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Self
@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tieout.errors import ConnectorError, MoneyError
 from tieout.money import normalize_currency, parse_amount
-from tieout.records import BUILTIN_FIELDS, Record
+from tieout.records import BUILTIN_FIELDS, Exclusion, Record, assign_stable_ids
 
 
 class CsvOptions(BaseModel):
@@ -66,9 +66,20 @@ class CsvOptions(BaseModel):
             raise ValueError(f"attribute_columns cannot include reserved names {sorted(reserved)}")
         return self
 
+    def fields(self) -> frozenset[str]:
+        """Names rules can refer to on records from this source."""
+        dates = {"value_date"} | ({"booking_date"} if self.booking_date_column else set())
+        return frozenset({*BUILTIN_FIELDS, *self.attribute_columns, *dates})
 
-def parse_csv(name: str, path: Path, raw_bytes: bytes, raw_options: dict[str, Any]) -> list[Record]:
-    """Parse a CSV file into canonical records according to ``CsvOptions``."""
+
+def parse_csv(
+    name: str, path: Path, raw_bytes: bytes, raw_options: dict[str, Any]
+) -> tuple[list[Record], list[Exclusion]]:
+    """Parse a CSV file into canonical records according to ``CsvOptions``.
+
+    Without an ``id_column``, ids come from the external id or, failing that, the
+    row's content, so reordering the file does not change them.
+    """
     opts = CsvOptions.model_validate(raw_options)
     path_str = str(path)
 
@@ -79,26 +90,30 @@ def parse_csv(name: str, path: Path, raw_bytes: bytes, raw_options: dict[str, An
             f"cannot decode CSV with encoding {opts.encoding!r}: {exc}", path=path_str
         ) from exc
 
-    reader = csv.DictReader(io.StringIO(text, newline=""), delimiter=opts.delimiter)
-    if reader.fieldnames is None:
+    # strict: an unbalanced quote must fail, not swallow the following rows into one field.
+    reader = csv.DictReader(io.StringIO(text, newline=""), delimiter=opts.delimiter, strict=True)
+    try:
+        fieldnames = reader.fieldnames
+    except csv.Error as exc:
+        raise ConnectorError(f"malformed CSV: {exc}", path=path_str, location="header") from exc
+    if fieldnames is None:
         raise ConnectorError(
             "CSV file is empty or missing a header row", path=path_str, location="header"
         )
 
-    _check_columns(opts, reader.fieldnames, path_str)
+    check_header(fieldnames, path_str)
+    _check_columns(opts, fieldnames, path_str)
 
     debit_tokens = {token.strip().lower() for token in opts.debit_values}
     credit_tokens = {token.strip().lower() for token in opts.credit_values}
 
     records: list[Record] = []
+    excluded: list[Exclusion] = []
     seen_ids: set[str] = set()
-    for row in reader:
+    for row in iter_rows(reader, path_str):
         location = f"line {reader.line_num}"
-        if None in row:
-            raise ConnectorError(
-                "row has more fields than the header", path=path_str, location=location
-            )
         if all(not (value or "").strip() for value in row.values()):
+            excluded.append(Exclusion(location, "blank row"))
             continue
 
         record = _parse_row(
@@ -118,7 +133,47 @@ def parse_csv(name: str, path: Path, raw_bytes: bytes, raw_options: dict[str, An
         seen_ids.add(record.id)
         records.append(record)
 
-    return records
+    if opts.id_column is None:
+        records = assign_stable_ids(name, records, lambda record: record.external_id)
+    return records, excluded
+
+
+def check_header(fieldnames: Sequence[str], path_str: str) -> None:
+    """Refuse headers a ``DictReader`` would silently mangle."""
+    seen: set[str] = set()
+    for column in fieldnames:
+        if column in seen:
+            raise ConnectorError(
+                f"duplicate column {column!r}: a reader would keep only the last one",
+                path=path_str,
+                location="header",
+            )
+        seen.add(column)
+
+
+def iter_rows(reader: csv.DictReader[str], path_str: str) -> Iterator[dict[str, str | None]]:
+    """Rows of ``reader``, refusing rows whose width differs from the header's."""
+    while True:
+        try:
+            row = next(reader)
+        except StopIteration:
+            return
+        except csv.Error as exc:
+            raise ConnectorError(
+                f"malformed CSV: {exc}",
+                path=path_str,
+                location=f"near line {reader.reader.line_num}",
+            ) from exc
+        location = f"line {reader.line_num}"
+        if None in row:
+            raise ConnectorError(
+                "row has more fields than the header", path=path_str, location=location
+            )
+        if any(value is None for value in row.values()):
+            raise ConnectorError(
+                "row has fewer fields than the header", path=path_str, location=location
+            )
+        yield row
 
 
 def _check_columns(opts: CsvOptions, fieldnames: Sequence[str], path_str: str) -> None:
@@ -177,7 +232,7 @@ def _parse_row(
             )
         record_id = f"{name}:{raw_id}"
     else:
-        record_id = f"{name}:{line_num}"
+        record_id = f"{name}:line-{line_num}"  # provisional; replaced by a stable id
 
     external_id = _cell(row, opts.external_id_column) if opts.external_id_column else ""
     description = _cell(row, opts.description_column) if opts.description_column else ""

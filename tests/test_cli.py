@@ -61,7 +61,8 @@ def test_cli_run_example_summary_json_and_outputs(tmp_path: Path) -> None:
     assert summary_run.exit_code == 0
     assert "7/8 records matched" in summary_run.output
     assert "2 match(es); 1 break(s)" in summary_run.output
-    assert "bank:3" in summary_run.output
+    assert "bank:BANK-20261105-FEE" in summary_run.output
+    assert "entry 3" in summary_run.output
 
     # JSON output + CSV/JSON artifact directory
     out_dir = tmp_path / "out"
@@ -86,20 +87,25 @@ def test_cli_run_example_summary_json_and_outputs(tmp_path: Path) -> None:
     assert payload["summary"]["breaks"] == 1
     assert payload["summary"]["matched_records"] == 7
     assert payload["matches"][0]["difference"] == "0.00"
-    assert payload["breaks"][0]["record_id"] == "bank:3"
+    assert payload["breaks"][0]["record_id"] == "bank:BANK-20261105-FEE"
+    assert payload["breaks"][0]["location"] == "entry 3"
     assert payload["breaks"][0]["amount"] == "-25.00"
 
     assert (out_dir / "result.json").exists()
     with (out_dir / "matches.csv").open(encoding="utf-8", newline="") as handle:
         matches_rows = list(csv.DictReader(handle))
     assert len(matches_rows) == 2
-    assert {row["right_ids"] for row in matches_rows} == {"bank:1", "bank:2"}
+    assert {row["right_ids"] for row in matches_rows} == {
+        "bank:BANK-20261103-01",
+        "bank:BANK-20261104-01",
+    }
     assert {row["right_amount"] for row in matches_rows} == {"365.40", "184.10"}
 
     with (out_dir / "breaks.csv").open(encoding="utf-8", newline="") as handle:
         breaks_rows = list(csv.DictReader(handle))
     assert len(breaks_rows) == 1
-    assert breaks_rows[0]["record_id"] == "bank:3"
+    assert breaks_rows[0]["record_id"] == "bank:BANK-20261105-FEE"
+    assert breaks_rows[0]["location"] == "entry 3"
     assert breaks_rows[0]["reason"] == "unmatched"
     assert breaks_rows[0]["amount"] == "-25.00"
 

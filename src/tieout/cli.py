@@ -7,7 +7,7 @@ from pathlib import Path
 
 import click
 
-from tieout.connectors import read_source, validate_source_spec
+from tieout.connectors import read_source, validate_spec
 from tieout.engine import ENGINE_VERSION, reconcile
 from tieout.errors import TieoutError
 from tieout.report import format_summary, to_json, write_breaks_csv, write_matches_csv
@@ -32,8 +32,7 @@ def validate(spec_path: Path) -> None:
     """Validate a YAML reconciliation spec and its source options."""
     try:
         spec = load_spec(spec_path)
-        for source_spec in spec.sources.values():
-            validate_source_spec(source_spec)
+        validate_spec(spec)
     except TieoutError as exc:
         raise _CliError(str(exc)) from exc
 
@@ -77,6 +76,7 @@ def run(
     bindings = _parse_inputs(inputs)
     try:
         spec = load_spec(spec_path)
+        validate_spec(spec)
         for name in bindings:
             if name not in spec.sources:
                 declared = ", ".join(sorted(spec.sources)) or "(none)"

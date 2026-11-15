@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Literal
 
 from hypothesis import given, settings
@@ -10,6 +12,9 @@ from hypothesis import strategies as st
 
 from tieout import BreakReason, Record, Rule, RuleKind, Source, reconcile
 from tieout.conditions import expected_right_total
+from tieout.connectors import read_source
+from tieout.money import _EXPONENTS, format_amount, parse_amount
+from tieout.result import Result
 from tieout.spec import AmountCondition, DateCondition, GroupSpec
 
 _BASE_DATE = date(2026, 11, 1)
@@ -242,3 +247,62 @@ def test_cloning_sole_counterpart_produces_ambiguity(amount: int, day_offset: in
     assert breaks["l1"].reason is BreakReason.AMBIGUOUS
     assert breaks["r1"].reason is BreakReason.AMBIGUOUS
     assert breaks["r2"].reason is BreakReason.AMBIGUOUS
+
+
+@given(
+    minor=st.integers(min_value=-(10**15), max_value=10**15),
+    currency=st.sampled_from(sorted(_EXPONENTS)),
+)
+def test_format_then_parse_is_exact(minor: int, currency: str) -> None:
+    assert parse_amount(format_amount(minor, currency), currency) == minor
+
+
+_CSV_ROW = st.tuples(
+    st.integers(min_value=0, max_value=3),  # day offset
+    st.integers(min_value=1, max_value=400),  # cents
+    st.sampled_from(["", "INV-1", "INV-2", "INV-3"]),  # external id (may repeat)
+    st.sampled_from(["a", "b"]),  # memo
+)
+
+
+@given(
+    left_rows=st.lists(_CSV_ROW, max_size=8),
+    right_rows=st.lists(_CSV_ROW, max_size=8),
+    data=st.data(),
+)
+@settings(max_examples=40, deadline=None)
+def test_shuffling_file_rows_changes_nothing_but_locations(
+    left_rows: list[tuple[int, int, str, str]],
+    right_rows: list[tuple[int, int, str, str]],
+    data: st.DataObject,
+) -> None:
+    rule = Rule(id="r", left="left", right="right", date=DateCondition(min_days=-1, max_days=2))
+    options = {
+        "amount_column": "amount",
+        "currency": "USD",
+        "external_id_column": "ref",
+        "attribute_columns": ("memo",),
+    }
+
+    def run(rows: dict[str, list[tuple[int, int, str, str]]], folder: Path) -> Result:
+        sources = []
+        for name, items in rows.items():
+            path = folder / f"{name}.csv"
+            lines = ["date,amount,ref,memo"] + [
+                f"{_BASE_DATE + timedelta(days=d)},{c / 100:.2f},{ref},{memo}"
+                for d, c, ref, memo in items
+            ]
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            sources.append(read_source(name, path, "csv", **options))
+        return reconcile(sources, [rule])
+
+    shuffled = {
+        "left": data.draw(st.permutations(left_rows)),
+        "right": data.draw(st.permutations(right_rows)),
+    }
+    with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+        original = run({"left": left_rows, "right": right_rows}, Path(first))
+        reordered = run(shuffled, Path(second))
+    assert original.matches == reordered.matches
+    assert original.breaks == reordered.breaks
+    assert original.run.run_id == reordered.run.run_id

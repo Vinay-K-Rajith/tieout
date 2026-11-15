@@ -13,6 +13,12 @@ bounded three ways:
 The engine needs to know whether the answer is *unique*, so the search stops at
 the second solution. Two solutions mean ambiguity; an exhausted budget means
 "could not prove uniqueness". Neither is ever turned into a guess.
+
+Uniqueness for one target is not enough. A group is accepted only if no other
+target could claim any of its members: not another target's unique group, and
+not one of the groupings an unresolved (ambiguous or exhausted) target could
+still use. The second check is its own bounded search per shared member; if that
+search runs out of budget, the claim is assumed possible.
 """
 
 from __future__ import annotations
@@ -40,6 +46,8 @@ class SearchOutcome:
     """Record id -> ids of the records it could have been grouped with."""
     exhausted: dict[str, int] = field(default_factory=dict)
     """Target record id -> steps spent before the budget ran out."""
+    contested: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    """Target id -> other targets that could claim members of its only grouping."""
 
 
 def search_groups(
@@ -54,6 +62,8 @@ def search_groups(
             candidates_by_currency[record.currency].append(record)
 
     unique: dict[str, FoundGroup] = {}
+    unresolved: dict[str, tuple[int, list[Record]]] = {}
+    """Ambiguous or exhausted target id -> (wanted size, its candidates)."""
     outcome = SearchOutcome()
     for target in sorted(targets, key=lambda r: r.id):
         wanted = sign * target.amount
@@ -74,9 +84,11 @@ def search_groups(
         search.run()
         if search.exhausted:
             outcome.exhausted[target.id] = search.steps
+            unresolved[target.id] = (abs(wanted), candidates)
         elif len(search.solutions) > 1:
             members = {candidates[i].id for solution in search.solutions for i in solution}
             _note_ambiguous(outcome, target.id, members)
+            unresolved[target.id] = (abs(wanted), candidates)
         elif search.solutions:
             chosen = tuple(candidates[i] for i in search.solutions[0])
             unique[target.id] = FoundGroup(target, chosen, search.steps)
@@ -88,11 +100,47 @@ def search_groups(
             claims[member.id].append(found.target.id)
     for target_id, found in sorted(unique.items()):
         rivals = {claimant for m in found.members for claimant in claims[m.id]}
+        rivals |= _possible_claimants(rule, found, unresolved)
         if rivals == {target_id}:
             outcome.found.append(found)
         else:
             _note_ambiguous(outcome, target_id, {m.id for m in found.members})
+            outcome.contested[target_id] = tuple(sorted(rivals - {target_id}))
     return outcome
+
+
+def _possible_claimants(
+    rule: Rule, found: FoundGroup, unresolved: dict[str, tuple[int, list[Record]]]
+) -> set[str]:
+    """Unresolved targets that have (or might have) a grouping using one of ``found``'s members."""
+    group = rule.grouping
+    tolerance = rule.amount.tolerance
+    claimants: set[str] = set()
+    for other_id, (wanted, candidates) in sorted(unresolved.items()):
+        candidate_ids = {record.id for record in candidates}
+        for member in found.members:
+            if member.id not in candidate_ids:
+                continue
+            remainder = wanted - abs(member.amount)
+            if abs(remainder) <= tolerance:
+                claimants.add(other_id)  # the member alone fits that target
+                break
+            if group.max_size == 1 or remainder < -tolerance:
+                continue
+            rest = [record for record in candidates if record.id != member.id]
+            search = _SubsetSearch(
+                values=[abs(record.amount) for record in rest],
+                target=remainder,
+                tolerance=tolerance,
+                max_size=group.max_size - 1,
+                budget=group.search_budget,
+                stop_after=1,
+            )
+            search.run()
+            if search.exhausted or search.solutions:
+                claimants.add(other_id)
+                break
+    return claimants
 
 
 def _compatible(
@@ -104,9 +152,8 @@ def _compatible(
         return False
     left, right = (target, candidate) if targets_are_left else (candidate, target)
     if rule.date is not None:
-        field_name = rule.date.field
-        left_date = left.booking_date if field_name == "booking_date" else left.value_date
-        right_date = right.booking_date if field_name == "booking_date" else right.value_date
+        left_date = left.date_of(rule.date.field)
+        right_date = right.date_of(rule.date.field)
         if left_date is None or right_date is None:
             return False
         gap = (right_date - left_date).days
@@ -126,7 +173,14 @@ class _SubsetSearch:
     """Depth-first search over values sorted largest first, stopping at two solutions."""
 
     def __init__(
-        self, *, values: list[int], target: int, tolerance: int, max_size: int, budget: int
+        self,
+        *,
+        values: list[int],
+        target: int,
+        tolerance: int,
+        max_size: int,
+        budget: int,
+        stop_after: int = 2,
     ) -> None:
         # Largest first makes both pruning rules below cut early.
         self._order = sorted(range(len(values)), key=lambda i: (-values[i], i))
@@ -135,6 +189,7 @@ class _SubsetSearch:
         self._high = target + tolerance
         self._max_size = max_size
         self._budget = budget
+        self._stop_after = stop_after
         self._prefix = [0]
         for value in self._values:
             self._prefix.append(self._prefix[-1] + value)
@@ -163,7 +218,7 @@ class _SubsetSearch:
             chosen.append(position)
             if new_total >= self._low:
                 self.solutions.append(tuple(sorted(self._order[p] for p in chosen)))
-                if len(self.solutions) > 1:
+                if len(self.solutions) >= self._stop_after:
                     return True
             if (
                 slots > 1

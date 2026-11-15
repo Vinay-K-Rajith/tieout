@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
-from tieout.records import Record
+from tieout.records import Exclusion, Record
 
 
 class BreakReason(StrEnum):
@@ -59,6 +59,9 @@ class RunInfo:
     engine_version: str
     spec_digest: str
     input_digests: Mapping[str, str]
+    """SHA-256 of each source's raw bytes (or of its records, for in-memory sources)."""
+    content_digests: Mapping[str, str]
+    """Digest of each source's records, independent of row order; feeds the run id."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +70,8 @@ class Result:
     records: Mapping[str, Record]
     matches: tuple[Match, ...]
     breaks: tuple[Break, ...]
+    excluded: Mapping[str, tuple[Exclusion, ...]] = field(default_factory=dict)
+    """Rows each connector filtered out on purpose (pending entries, payouts...)."""
 
     def summary(self) -> ResultSummary:
         matched = sum(len(match.record_ids) for match in self.matches)
@@ -76,6 +81,7 @@ class Result:
             matches=len(self.matches),
             matched_records=matched,
             breaks_by_reason={reason: reasons[reason] for reason in BreakReason if reasons[reason]},
+            excluded=sum(len(rows) for rows in self.excluded.values()),
         )
 
 
@@ -85,6 +91,8 @@ class ResultSummary:
     matches: int
     matched_records: int
     breaks_by_reason: Mapping[BreakReason, int]
+    excluded: int = 0
+    """Input rows filtered out by connectors before matching."""
 
     @property
     def breaks(self) -> int:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 
@@ -65,7 +66,9 @@ def test_csv_direction_column_and_european_format(tmp_path: Path) -> None:
         thousands_separator=".",
         attribute_columns=("ref",),
     )
-    assert [r.id for r in source.records] == ["bank:2", "bank:3"]
+    # No id or external id column: ids come from content, so row order cannot change them.
+    assert all(re.fullmatch(r"bank:[0-9a-f]{12}", r.id) for r in source.records)
+    assert [r.location for r in source.records] == ["line 2", "line 3"]
     assert [r.amount for r in source.records] == [-123450, 9900]
     assert [r.value_date for r in source.records] == [date(2026, 11, 3), date(2026, 11, 4)]
     assert source.records[0].currency == "EUR"
@@ -112,9 +115,10 @@ def test_csv_error_paths(tmp_path: Path) -> None:
 def test_camt053_fixture_and_filtering() -> None:
     source = read_source("bank", FIXTURES / "bank_camt053.xml", "camt")
     assert len(source.records) == 3  # PDNG entry 3 filtered out by default
+    assert [(row.location, row.reason) for row in source.excluded] == [("entry 3", "status PDNG")]
 
     first, second, third = source.records
-    assert first.id == "bank:1"
+    assert first.id == "bank:BKREF-001"
     assert first.amount == 20000
     assert first.currency == "USD"
     assert first.value_date == date(2026, 11, 3)
@@ -125,16 +129,18 @@ def test_camt053_fixture_and_filtering() -> None:
     assert first.attributes["statement_id"] == "STMT-2026-11-01"
     assert first.attributes["account_id"] == "DE89370400440532013000"
 
-    assert second.id == "bank:2"
+    assert second.id == "bank:BKREF-002"
     assert second.amount == -4550
     assert second.attributes["remittance"] == "INV-8821"
     assert second.attributes["counterparty"] == "Cloud Host LLC"
 
-    # Entry 4 is a reversal with EndToEndId=NOTPROVIDED and ValDt falling back to BookgDt.
-    assert third.id == "bank:4"
+    # Entry 4 is a CRDT reversal (of the debit): its sign comes from CdtDbtInd alone.
+    # It has no ValDt, and the booking date is not substituted for it.
+    assert third.id == "bank:BKREF-003"
     assert third.location == "entry 4"
     assert third.amount == 4550
-    assert third.value_date == date(2026, 11, 5)
+    assert third.value_date is None
+    assert third.booking_date == date(2026, 11, 5)
     assert third.attributes["reversal"] == "true"
     assert "end_to_end_id" not in third.attributes
 
@@ -228,7 +234,7 @@ def test_stripe_fixture_timezone_and_duplicate_rows(tmp_path: Path) -> None:
     # Timezone conversion: 2026-11-03 03:00:00 UTC -> 2026-11-02 in America/New_York
     tz_csv = tmp_path / "stripe_tz.csv"
     tz_csv.write_text(
-        "balance_transaction_id,created,reporting_category,currency,net,automatic_payout_id\n"
+        "balance_transaction_id,created_utc,reporting_category,currency,net,automatic_payout_id\n"
         "txn_1,2026-11-03 03:00:00,charge,usd,10.00,po_1001\n"
         "txn_1,2026-11-03 03:00:00,charge,usd,10.00,po_1001\n",
         encoding="utf-8",
@@ -236,7 +242,7 @@ def test_stripe_fixture_timezone_and_duplicate_rows(tmp_path: Path) -> None:
     tz_source = read_source("stripe", tz_csv, "stripe", timezone="America/New_York")
     assert tz_source.records[0].value_date == date(2026, 11, 2)
     assert tz_source.records[0].id == "stripe:txn_1"
-    assert tz_source.records[1].id == "stripe:txn_1@3"
+    assert tz_source.records[1].id == "stripe:txn_1~2"
 
     # Engine deduplicates the repeated transaction line cleanly.
     bank = read_source("bank", FIXTURES / "bank_camt053.xml", "camt")
@@ -245,7 +251,7 @@ def test_stripe_fixture_timezone_and_duplicate_rows(tmp_path: Path) -> None:
         [Rule(id="r", left="stripe", right="bank")],
     )
     breaks = {b.record_id: b for b in res.breaks}
-    assert breaks["stripe:txn_1@3"].reason is BreakReason.DUPLICATE
+    assert breaks["stripe:txn_1~2"].reason is BreakReason.DUPLICATE
 
 
 def test_stripe_to_bank_end_to_end_with_fixtures() -> None:
@@ -264,6 +270,6 @@ def test_stripe_to_bank_end_to_end_with_fixtures() -> None:
     assert len(result.matches) == 1
     match = result.matches[0]
     assert match.left_ids == ("stripe:txn_101", "stripe:txn_102", "stripe:txn_103")
-    assert match.right_ids == ("bank:1",)
+    assert match.right_ids == ("bank:BKREF-001",)
     assert match.difference == 0
-    assert {b.record_id for b in result.breaks} == {"bank:2", "bank:4"}
+    assert {b.record_id for b in result.breaks} == {"bank:BKREF-002", "bank:BKREF-003"}

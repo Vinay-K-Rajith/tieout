@@ -8,12 +8,17 @@ several. Every check is defined over groups so all rule kinds share one meaning:
   for ``sign: opposite``) within the tolerance;
 - date: *every* right date minus *every* left date must fall in the window;
 - references: the condition must hold for *every* left/right record pair.
+
+Containment checks (``left_in_right``/``right_in_left``) match whole tokens only:
+the needle must start and end where the haystack has a token boundary (a
+separator, or a switch between letters and digits). ``"INV-0042"`` is found in
+``"Payment for inv 0042"``, but ``"7712"`` is not found in ``"Payment #77712"``.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -22,6 +27,7 @@ from tieout.records import Record
 from tieout.spec import ReferenceCondition, Rule
 
 _NON_ALPHANUMERIC = re.compile(r"[^0-9A-Z]+")
+_TOKEN = re.compile(r"[A-Z]+|[0-9]+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,11 +39,18 @@ class DateSpan:
 
 
 def date_span(records: Sequence[Record], rule: Rule) -> DateSpan | None:
-    """Date span used by the rule's date check, or None if any record lacks the date."""
-    field = rule.date.field if rule.date else "value_date"
+    """Date span used by the rule's date check, or None if any record lacks the date.
+
+    With a date condition, only the field it names counts. Without one, dates only
+    rank otherwise equal candidates, so a record's value date is used if it has
+    one and its booking date if not.
+    """
     ordinals = []
     for record in records:
-        value = record.booking_date if field == "booking_date" else record.value_date
+        if rule.date is not None:
+            value = record.date_of(rule.date.field)
+        else:
+            value = record.value_date or record.booking_date
         if value is None:
             return None
         ordinals.append(value.toordinal())
@@ -71,17 +84,50 @@ def normalize_reference(text: str) -> str:
     return _NON_ALPHANUMERIC.sub("", text.upper())
 
 
+@lru_cache(maxsize=262144)
+def _token_boundaries(text: str) -> frozenset[int]:
+    """Offsets in the normalised text where a token starts or ends."""
+    boundaries = {0}
+    offset = 0
+    for token in _TOKEN.findall(text.upper()):
+        offset += len(token)
+        boundaries.add(offset)
+    return frozenset(boundaries)
+
+
+def contains_token_sequence(haystack: str, needle: str) -> bool:
+    """Whether normalised ``needle`` occurs in ``haystack`` aligned to token boundaries."""
+    normalized_haystack = normalize_reference(haystack)
+    normalized_needle = normalize_reference(needle)
+    if not normalized_needle:
+        return False
+    boundaries = _token_boundaries(haystack)
+    start = normalized_haystack.find(normalized_needle)
+    while start != -1:
+        if start in boundaries and start + len(normalized_needle) in boundaries:
+            return True
+        start = normalized_haystack.find(normalized_needle, start + 1)
+    return False
+
+
 def reference_holds(condition: ReferenceCondition, left: Record, right: Record) -> bool:
-    left_value = normalize_reference(left.value_of(condition.left))
-    right_value = normalize_reference(right.value_of(condition.right))
+    raw_left, raw_right = left.value_of(condition.left), right.value_of(condition.right)
+    left_value, right_value = normalize_reference(raw_left), normalize_reference(raw_right)
     if not left_value or not right_value:
         return False  # an absent reference never counts as agreement
     if condition.op == "equals":
         return left_value == right_value
     needle, haystack = (
-        (left_value, right_value) if condition.op == "left_in_right" else (right_value, left_value)
+        (raw_left, raw_right)
+        if condition.op == "left_in_right"
+        else (
+            raw_right,
+            raw_left,
+        )
     )
-    return len(needle) >= condition.min_length and needle in haystack
+    if len(normalize_reference(needle)) < condition.min_length:
+        return False
+    return contains_token_sequence(haystack, needle)
 
 
 def references_hold(rule: Rule, lefts: Sequence[Record], rights: Sequence[Record]) -> bool:
@@ -113,10 +159,7 @@ def explain(
     ]
     if rule.date is not None:
         lines.append(_explain_dates(rule, lefts, rights))
-    lines.extend(
-        f"reference: left.{condition.left} {_OP_WORDS[condition.op]} right.{condition.right}"
-        for condition in rule.references
-    )
+    lines.extend(_explain_reference(condition, lefts, rights) for condition in rule.references)
     if grouping_note:
         lines.append(grouping_note)
     return tuple(lines)
@@ -143,6 +186,27 @@ def _explain_amount(
         f"{totals}, difference {format_amount(difference, currency)} {currency} "
         f"within tolerance {format_amount(rule.amount.tolerance, currency)}"
     )
+
+
+def _explain_reference(
+    condition: ReferenceCondition, lefts: Sequence[Record], rights: Sequence[Record]
+) -> str:
+    left_values = _distinct(record.value_of(condition.left) for record in lefts)
+    right_values = _distinct(record.value_of(condition.right) for record in rights)
+    return (
+        f"reference: left.{condition.left} {_quote(left_values)} {_OP_WORDS[condition.op]} "
+        f"right.{condition.right} {_quote(right_values)}"
+    )
+
+
+def _distinct(values: Iterable[str]) -> list[str]:
+    return sorted(set(values))
+
+
+def _quote(values: list[str]) -> str:
+    shown = ", ".join(repr(value) for value in values[:3])
+    more = f" and {len(values) - 3} more" if len(values) > 3 else ""
+    return shown + more
 
 
 def _explain_dates(rule: Rule, lefts: Sequence[Record], rights: Sequence[Record]) -> str:
