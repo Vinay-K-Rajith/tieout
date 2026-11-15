@@ -1,0 +1,5 @@
+* text=auto eol=lf
+
+# Fixture files must stay byte-exact: their hashes are part of run metadata.
+tests/fixtures/** -text
+examples/**/data/** -text
