@@ -49,7 +49,7 @@ See [docs/design/PRODUCT.md](docs/design/PRODUCT.md) for the full case.
 ## Quick start
 
 ```bash
-pip install git+https://github.com/Vinay-K-Rajith/tieout@v0.1.0
+pip install tieout
 tieout run examples/stripe-to-bank/recon.yaml \
   --input stripe=examples/stripe-to-bank/data/stripe_itemized_payouts.csv \
   --input bank=examples/stripe-to-bank/data/bank_statement.camt053.xml
