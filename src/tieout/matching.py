@@ -113,7 +113,7 @@ def resolve(rule: Rule, lefts: Sequence[Bundle], rights: Sequence[Bundle]) -> Re
 
     while to_check:
         accepted = []
-        for left_key in sorted(to_check & open_left):
+        for left_key in sorted(k for k in to_check if k in open_left):
             choice = _unique_best(left_options[left_key], open_right)
             if choice is not None and (_unique_best(right_options[choice], open_left) == left_key):
                 accepted.append((left_key, choice))
@@ -123,26 +123,49 @@ def resolve(rule: Rule, lefts: Sequence[Bundle], rights: Sequence[Bundle]) -> Re
             open_left.discard(left_key)
             open_right.discard(right_key)
             resolution.pairs.append((left_by_key[left_key], right_by_key[right_key]))
+        if not open_left or not open_right:
+            break
         for left_key, right_key in accepted:
             # A left can gain a new unique best only by losing an option...
-            to_check.update(right_options[right_key].keys() & open_left)
+            for candidate_left in right_options[right_key]:
+                if candidate_left in open_left:
+                    to_check.add(candidate_left)
             # ...and a right can, too; then only its new favourite can pair with it.
-            for neighbour in left_options[left_key].keys() & open_right:
-                favourite = _unique_best(right_options[neighbour], open_left)
-                if favourite is not None:
-                    to_check.add(favourite)
+            for neighbour in left_options[left_key]:
+                if neighbour in open_right:
+                    favourite = _unique_best(right_options[neighbour], open_left)
+                    if favourite is not None:
+                        to_check.add(favourite)
 
-    for key in sorted(open_left):
-        options = sorted(left_options[key].keys() & open_right)
-        if options:
-            resolution.contested.append((left_by_key[key], [right_by_key[k] for k in options]))
-    for key in sorted(open_right):
-        options = sorted(right_options[key].keys() & open_left)
-        if options:
-            resolution.contested.append((right_by_key[key], [left_by_key[k] for k in options]))
+    resolution.contested.extend(
+        _collect_contested(
+            open_left, open_right, left_options, side_by_key=left_by_key, other_by_key=right_by_key
+        )
+    )
+    resolution.contested.extend(
+        _collect_contested(
+            open_right, open_left, right_options, side_by_key=right_by_key, other_by_key=left_by_key
+        )
+    )
 
     resolution.pairs.sort(key=lambda pair: (pair[0].key, pair[1].key))
     return resolution
+
+
+def _collect_contested(
+    open_side: set[str],
+    open_other: set[str],
+    options_by_key: dict[str, dict[str, Score]],
+    *,
+    side_by_key: dict[str, Bundle],
+    other_by_key: dict[str, Bundle],
+) -> list[tuple[Bundle, list[Bundle]]]:
+    contested: list[tuple[Bundle, list[Bundle]]] = []
+    for key in sorted(open_side):
+        options = sorted(k for k in options_by_key[key] if k in open_other)
+        if options:
+            contested.append((side_by_key[key], [other_by_key[k] for k in options]))
+    return contested
 
 
 def _unique_best(options: dict[str, Score], available: set[str]) -> str | None:

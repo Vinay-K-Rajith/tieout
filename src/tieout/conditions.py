@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 
 from tieout.money import format_amount
 from tieout.records import Record
@@ -65,6 +66,7 @@ def amount_difference(rule: Rule, left_total: int, right_total: int) -> int:
     return right_total - expected_right_total(rule, left_total)
 
 
+@lru_cache(maxsize=524288)
 def normalize_reference(text: str) -> str:
     return _NON_ALPHANUMERIC.sub("", text.upper())
 

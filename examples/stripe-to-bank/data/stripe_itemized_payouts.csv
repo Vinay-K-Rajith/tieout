@@ -1,0 +1,8 @@
+balance_transaction_id,automatic_payout_id,automatic_payout_effective_at,reporting_category,currency,gross,fee,net,charge_id,customer_id,description
+txn_1001,po_20261101,2026-11-01 22:00:00,charge,usd,120.00,-3.78,116.22,ch_1001,cus_a,Order #1001
+txn_1002,po_20261101,2026-11-01 22:00:00,charge,usd,280.00,-8.42,271.58,ch_1002,cus_b,Order #1002
+txn_1003,po_20261101,2026-11-01 22:00:00,refund,usd,-22.40,0.00,-22.40,ch_0998,cus_c,Refund for #0998
+txn_1004,po_20261101,2026-11-01 22:00:00,payout,usd,-365.40,0.00,-365.40,,,STRIPE PAYOUT
+txn_1005,po_20261102,2026-11-02 22:00:00,charge,usd,95.00,-3.05,91.95,ch_1005,cus_d,Order #1005
+txn_1006,po_20261102,2026-11-02 22:00:00,charge,usd,95.20,-3.05,92.15,ch_1006,cus_e,Order #1006
+txn_1007,po_20261102,2026-11-02 22:00:00,payout,usd,-184.10,0.00,-184.10,,,STRIPE PAYOUT

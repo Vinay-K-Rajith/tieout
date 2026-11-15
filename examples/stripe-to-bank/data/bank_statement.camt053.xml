@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
+  <BkToCstmrStmt>
+    <Stmt>
+      <Id>STMT-2026-11-EX</Id>
+      <Acct>
+        <Id>
+          <IBAN>US00BANK00000000123456</IBAN>
+        </Id>
+      </Acct>
+      <Ntry>
+        <Amt Ccy="USD">365.40</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts><Cd>BOOK</Cd></Sts>
+        <BookgDt><Dt>2026-11-03</Dt></BookgDt>
+        <ValDt><Dt>2026-11-03</Dt></ValDt>
+        <AcctSvcrRef>BANK-20261103-01</AcctSvcrRef>
+        <AddtlNtryInf>STRIPE PAYOUT po_20261101</AddtlNtryInf>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="USD">184.10</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts><Cd>BOOK</Cd></Sts>
+        <BookgDt><Dt>2026-11-04</Dt></BookgDt>
+        <ValDt><Dt>2026-11-04</Dt></ValDt>
+        <AcctSvcrRef>BANK-20261104-01</AcctSvcrRef>
+        <AddtlNtryInf>STRIPE PAYOUT po_20261102</AddtlNtryInf>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="USD">25.00</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts><Cd>BOOK</Cd></Sts>
+        <BookgDt><Dt>2026-11-05</Dt></BookgDt>
+        <ValDt><Dt>2026-11-05</Dt></ValDt>
+        <AcctSvcrRef>BANK-20261105-FEE</AcctSvcrRef>
+        <AddtlNtryInf>MONTHLY ACCOUNT MAINTENANCE FEE</AddtlNtryInf>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>

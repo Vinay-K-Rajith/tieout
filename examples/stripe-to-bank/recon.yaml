@@ -1,0 +1,18 @@
+version: 1
+
+sources:
+  stripe: { format: stripe }
+  bank:   { format: camt }
+
+rules:
+  # All Stripe balance transactions of one payout must add up to one bank credit.
+  - id: payout-to-bank
+    left: stripe
+    right: bank
+    kind: many_to_one
+    group: { by: payout_id }
+    date: { min_days: 0, max_days: 4 }
+    references:
+      - left: payout_id
+        right: description
+        op: left_in_right

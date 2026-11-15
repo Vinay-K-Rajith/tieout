@@ -7,22 +7,39 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
-from tieout.connectors.camt import parse_camt
-from tieout.connectors.csv import parse_csv
-from tieout.connectors.stripe import parse_stripe
+from tieout.connectors.camt import CamtOptions, parse_camt
+from tieout.connectors.csv import CsvOptions, parse_csv
+from tieout.connectors.stripe import StripeOptions, parse_stripe
 from tieout.errors import ConnectorError, SpecError
 from tieout.records import Record, Source
 from tieout.spec import SourceSpec
 
 _Parser = Callable[[str, Path, bytes, dict[str, Any]], list[Record]]
 
-_PARSERS: dict[str, _Parser] = {
-    "camt": parse_camt,
-    "csv": parse_csv,
-    "stripe": parse_stripe,
+_CONNECTORS: dict[str, tuple[_Parser, type[BaseModel]]] = {
+    "camt": (parse_camt, CamtOptions),
+    "csv": (parse_csv, CsvOptions),
+    "stripe": (parse_stripe, StripeOptions),
 }
+
+
+def validate_source_spec(spec: SourceSpec) -> None:
+    """Verify a source's connector format and options without reading a file."""
+    entry = _CONNECTORS.get(spec.format)
+    if entry is None:
+        supported = ", ".join(sorted(_CONNECTORS))
+        raise SpecError(f"unknown source format {spec.format!r} (expected one of: {supported})")
+    _, option_model = entry
+    try:
+        option_model.model_validate(spec.options)
+    except ValidationError as exc:
+        lines = [
+            f"{'.'.join(str(p) for p in err['loc']) or 'options'}: {err['msg']}"
+            for err in exc.errors()
+        ]
+        raise SpecError(f"invalid {spec.format} options:\n  " + "\n  ".join(lines)) from exc
 
 
 def read_source(
@@ -39,10 +56,11 @@ def read_source(
         fmt = spec.format
         merged_options = {**spec.options, **options}
 
-    parser = _PARSERS.get(fmt)
-    if parser is None:
-        supported = ", ".join(sorted(_PARSERS))
+    entry = _CONNECTORS.get(fmt)
+    if entry is None:
+        supported = ", ".join(sorted(_CONNECTORS))
         raise SpecError(f"unknown source format {fmt!r} (expected one of: {supported})")
+    parser, _ = entry
 
     file_path = Path(path)
     try:
@@ -64,4 +82,4 @@ def read_source(
     return Source(name=name, records=tuple(records), digest=digest)
 
 
-__all__ = ["read_source"]
+__all__ = ["read_source", "validate_source_spec"]
