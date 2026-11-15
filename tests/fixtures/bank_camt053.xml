@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
+  <BkToCstmrStmt>
+    <Stmt>
+      <Id>STMT-2026-11-01</Id>
+      <Acct>
+        <Id>
+          <IBAN>DE89370400440532013000</IBAN>
+        </Id>
+      </Acct>
+      <Ntry>
+        <NtryRef>NTRY-1</NtryRef>
+        <Amt Ccy="USD">200.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts><Cd>BOOK</Cd></Sts>
+        <BookgDt><Dt>2026-11-03</Dt></BookgDt>
+        <ValDt><Dt>2026-11-03</Dt></ValDt>
+        <AcctSvcrRef>BKREF-001</AcctSvcrRef>
+        <AddtlNtryInf>STRIPE PAYOUT po_1001</AddtlNtryInf>
+        <NtryDtls>
+          <TxDtls>
+            <Refs>
+              <EndToEndId>po_1001</EndToEndId>
+              <TxId>TX-001</TxId>
+            </Refs>
+            <RltdPties>
+              <Dbtr><Pty><Nm>Stripe Inc</Nm></Pty></Dbtr>
+            </RltdPties>
+            <RmtInf>
+              <Ustrd>Payout po_1001</Ustrd>
+            </RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="USD">45.50</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts><Cd>BOOK</Cd></Sts>
+        <BookgDt><DtTm>2026-11-04T09:15:00Z</DtTm></BookgDt>
+        <ValDt><Dt>2026-11-04</Dt></ValDt>
+        <AcctSvcrRef>BKREF-002</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <Refs>
+              <InstrId>INST-8821</InstrId>
+            </Refs>
+            <RltdPties>
+              <Cdtr><Pty><Nm>Cloud Host LLC</Nm></Pty></Cdtr>
+            </RltdPties>
+            <RmtInf>
+              <Strd>
+                <CdtrRefInf>
+                  <Ref>INV-8821</Ref>
+                </CdtrRefInf>
+              </Strd>
+            </RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="USD">99.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts><Cd>PDNG</Cd></Sts>
+        <BookgDt><Dt>2026-11-05</Dt></BookgDt>
+        <AcctSvcrRef>BKREF-PDNG</AcctSvcrRef>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="USD">45.50</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <RvslInd>true</RvslInd>
+        <Sts><Cd>BOOK</Cd></Sts>
+        <BookgDt><Dt>2026-11-05</Dt></BookgDt>
+        <AcctSvcrRef>BKREF-003</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <Refs>
+              <EndToEndId>NOTPROVIDED</EndToEndId>
+            </Refs>
+            <RmtInf>
+              <Ustrd>Reversal of Cloud Host debit</Ustrd>
+            </RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>

@@ -1,0 +1,5 @@
+entry_id,posted_date,currency,inflow,outflow,reference,memo
+JRN-1,2026-11-03,USD,200.00,,po_1001,Stripe settlement
+JRN-2,2026-11-04,USD,,45.50,INV-8821,Cloud hosting bill
+
+JRN-3,2026-11-05,USD,45.50,,REV-8821,Reversal credit

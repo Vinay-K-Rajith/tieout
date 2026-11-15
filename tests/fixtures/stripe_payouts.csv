@@ -1,0 +1,5 @@
+balance_transaction_id,automatic_payout_id,automatic_payout_effective_at,reporting_category,currency,gross,fee,net,charge_id,customer_id,invoice_id,description
+txn_101,po_1001,2026-11-02 23:00:00,charge,usd,150.00,-4.65,145.35,ch_1,cus_1,in_1,Order 101
+txn_102,po_1001,2026-11-02 23:00:00,charge,usd,80.00,-2.62,77.38,ch_2,cus_2,,Order 102
+txn_103,po_1001,2026-11-02 23:00:00,refund,usd,-23.00,0.27,-22.73,ch_3,cus_3,,Refund 103
+txn_104,po_1001,2026-11-02 23:00:00,payout,usd,-200.00,0.00,-200.00,,,,STRIPE PAYOUT
