@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tieout"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Open-source reconciliation engine: match bank, payment-provider, ledger and invoice records, with every match explained."
 readme = "README.md"
 license = "Apache-2.0"
@@ -13,7 +13,7 @@ requires-python = ">=3.11"
 authors = [{ name = "Vinay K Rajith" }]
 keywords = ["reconciliation", "finance", "accounting", "camt.053", "stripe", "ledger"]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
   "Intended Audience :: Financial and Insurance Industry",
   "Operating System :: OS Independent",
